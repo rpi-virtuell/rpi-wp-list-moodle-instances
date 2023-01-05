@@ -27,42 +27,57 @@ class ListInstances
 {
     public function __construct()
     {
-        add_action('wp', [$this, 'sync_instances_with_ini']);
+        add_action('wp_insert_post', [$this, 'update_ini_on_post_insert'], 10, 3);
     }
 
     public function sync_instances_with_ini()
     {
 
-        $ini_content = parse_ini_file(dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
-
-
-        $assoc_arr = [
-            'exclude_plugins' => [
-                'ex' => ['test' => 'sso']
-            ]
-            ,
-            'domain' => ['main_host_domain' => '.gpendialogue.net']
-
-        ];
+        $assoc_arr = parse_ini_file(dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
+        $assoc_arr['subdomains']['sub'] = array();
 
         $instances = get_posts([
             'numberposts' => -1,
+            'post_status' => 'any',
             'post_type' => 'instance'
         ]);
         foreach ($instances as $instance) {
             if (is_a($instance, 'WP_Post')) {
-                $subdomain = get_post_meta($instance->ID, 'subdomain',true);
-                $assoc_arr['subdomains']['sub'][$subdomain] = $instance->post_title;
-                if (false)
-                {
-                    shell_exec('bash setup.sh <'.$subdomain.'> <'.$instance->post_title.'>');
 
+                $assoc_arr['subdomains']['sub'][$instance->post_name] = $instance->post_title;
+                if (!file_exists(dirname(get_home_path()) . '/moodle-data/' . $instance->post_name . '/')) {
+
+                    $command = 'cd ' . dirname(get_home_path()) . '/multi-moodle-instances/ && bash setup.sh "' . $instance->post_name . '" "' . $instance->post_title . '"';
+                    shell_exec($command);
+
+                    $username = get_post_meta($instance->ID, 'username', true);
+                    $password = get_post_meta($instance->ID, 'password', true);
+                    $e_mail = get_post_meta($instance->ID, 'e-mail', true);
+                    $firstname = get_post_meta($instance->ID, 'firstname', true);
+                    $lastname = get_post_meta($instance->ID, 'lastname', true);
+
+                    $user_command = 'cd ' . dirname(get_home_path()) . '/multi-moodle-instances/ && export MULTI_HOST_SUBDOMAIN=' . $instance->post_name . ' &&  php7.4 create-user.php --username="' . $username . '" --email="' . $e_mail . '" --firstname="' . $firstname . '" --lastname="' . $lastname . '"  --password="' . $password . '"';
+                    shell_exec($user_command);
                 }
             }
         }
-        $this->write_ini_file($assoc_arr,dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
+
+        $this->write_ini_file($assoc_arr, dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
 
 
+    }
+
+    public function update_ini_on_post_insert($post_id, WP_Post $post, $update)
+    {
+        if ($post->post_type === 'instance') {
+
+            $ini_content = parse_ini_file(dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
+            $assoc_arr['subdomains']['sub'] = array();
+            $ini_content['subdomains']['sub'][$post->post_name] = $post->post_title;
+            $this->write_ini_file($ini_content, dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
+            $this->sync_instances_with_ini();
+            wp_redirect(home_url() . '/instance');
+        }
 
     }
 
@@ -84,9 +99,8 @@ class ListInstances
                 $content .= "[" . $key . "]\n";
                 foreach ($elem as $key2 => $elem2) {
                     if (is_array($elem2)) {
-                        foreach ($elem2 as $key3 => $elem3)
-                        {
-                            $content .= $key2 . "[$key3] = \"" . $elem3 . "\"\n" ;
+                        foreach ($elem2 as $key3 => $elem3) {
+                            $content .= $key2 . "[$key3] = \"" . $elem3 . "\"\n";
                         }
                     } else if ($elem2 == "") $content .= $key2 . " = \n";
                     else $content .= $key2 . " = \"" . $elem2 . "\"\n";
