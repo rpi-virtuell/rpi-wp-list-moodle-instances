@@ -31,6 +31,8 @@ class ListInstances
         add_action('wp_insert_post', [$this, 'update_ini_on_post_insert'], 10, 3);
         add_action('delete_post', [$this, 'update_ini_on_post_delete'], 10, 2);
         add_action('blocksy:content:before', [$this, 'add_delete_button']);
+        add_action('rpi_multi_moodle_update_all_courses', [$this, 'cron_update_instance_courses']);
+        add_action('rpi_multi_moodle_create_new_instance', [$this, 'cron_create_new_instance']);
     }
 
     public function sync_instances_with_ini()
@@ -97,10 +99,10 @@ class ListInstances
     {
         if ($post->post_type === 'instance') {
             $ini_content = parse_ini_file(dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
+            $command = 'cd ' . dirname(get_home_path()) . '/multi-moodle-instances/ && bash delete.sh "' . $post->post_name . '" "y" ';
             unset($ini_content['subdomains']['sub'][$post->post_name]);
             $this->write_ini_file($ini_content, dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
-            $command = 'cd ' . dirname(get_home_path()) . '/multi-moodle-instances/ && bash delete.sh ' . $post->post_name . ' y ';
-            shell_exec($command);
+            die();
         }
     }
 
@@ -156,20 +158,38 @@ class ListInstances
     {
         global $wpdb;
 
-        $course_id = intval(3);
 
+
+              $instances = get_posts([
+                  'numberposts' => -1,
+                  'post_status' => 'any',
+                  'post_type' => 'instance'
+              ]);
+
+        foreach ($instances as $instance)
+        {
+            if (is_a($instance, 'WP_Post'))
+            {
+                $subdomain = preg_replace('^[a-z][0-9]-', '',$instance->post_name);
+
+                $courses=  $wpdb->get_results("select id, fullname, summary, startdate, enddate, category from moodle_gpen_dialogue_net.{$subdomain}_course where visible = 1 ORDER BY startdate DESC;", OBJECT );
+                foreach ($courses as $cours){
+                    $course_id = intval($cours->ID);
+                    $query = "select CONCAT('/pluginfile.php',filepath, contextid,'/',component,'/',filearea,'/', filename) path
+from moodle_gpen_dialogue_net.test_files 
+where component='course' and mimetype is NOT null and filearea='overviewfiles' and contextid in (
+	select id from moodle_gpen_dialogue_net.test_context where instanceid= $course_id
+)";
+                    $course_img_path = $wpdb->get_var($query);
+                }
+            }
+        }
         /*
          * TODO: When the courses are querried unset the course with id =1 because this is the reference to the
          * TODO: instance and actual course
          */
 
-        $query = "select CONCAT('/pluginfile.php',filepath, contextid,'/',component,'/',filearea,'/', filename) path
-from moodle_gpen_dialogue_net.test_files 
-where component='course' and mimetype is NOT null and filearea='overviewfiles' and contextid in (
-	select id from moodle_gpen_dialogue_net.test_context where instanceid= $course_id
-)";
 
-        $course_img_path = $wpdb->get_var($query);
     }
 
     /**
