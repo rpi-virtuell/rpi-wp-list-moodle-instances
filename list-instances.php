@@ -27,7 +27,10 @@ class ListInstances
 {
     public function __construct()
     {
+        add_action('init', [$this, 'delete_post_on_attribute_pass']);
         add_action('wp_insert_post', [$this, 'update_ini_on_post_insert'], 10, 3);
+        add_action('delete_post', [$this, 'update_ini_on_post_delete'], 10, 2);
+        add_action('blocksy:content:before', [$this, 'add_delete_button']);
     }
 
     public function sync_instances_with_ini()
@@ -67,20 +70,107 @@ class ListInstances
 
     }
 
+    /**
+     * @param $post_id
+     * @param WP_Post $post
+     * @param $update
+     * @return void
+     */
     public function update_ini_on_post_insert($post_id, WP_Post $post, $update)
     {
         if ($post->post_type === 'instance') {
 
             $ini_content = parse_ini_file(dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
-            $assoc_arr['subdomains']['sub'] = array();
             $ini_content['subdomains']['sub'][$post->post_name] = $post->post_title;
             $this->write_ini_file($ini_content, dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
             $this->sync_instances_with_ini();
             wp_redirect(home_url() . '/instance');
         }
+    }
+
+    /**
+     * @param $postid
+     * @param WP_Post $post
+     * @return void
+     */
+    public function update_ini_on_post_delete($postid, WP_Post $post)
+    {
+        if ($post->post_type === 'instance') {
+            $ini_content = parse_ini_file(dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
+            unset($ini_content['subdomains']['sub'][$post->post_name]);
+            $this->write_ini_file($ini_content, dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
+            $command = 'cd ' . dirname(get_home_path()) . '/multi-moodle-instances/ && bash delete.sh ' . $post->post_name . ' y ';
+            shell_exec($command);
+        }
+    }
+
+
+    public function add_delete_button()
+    {
+        if (get_post_type() === 'instance' && !is_archive() && is_user_logged_in()) {
+            ?>
+
+            <a href="?delete=request" class="button">Instanz löschen</a>
+
+            <?php
+            if ($_GET['delete'] === 'request') {
+                ?>
+                <div>
+                    Wirklich Löschen?
+                    <a href="?delete=confirm" class="button">Ja</a>
+                    <a href="<?php echo get_post_permalink() ?>" class="button">Nein</a>
+                </div>
+                <?php
+            }
+            if ($_GET['delete'] === 'confirm') {
+                $postID = get_the_ID();
+                wp_delete_post($postID);
+                $this->update_ini_on_post_delete(get_the_ID(), get_post());
+            }
+        }
+    }
+
+    public function delete_post_on_attribute_pass()
+    {
+        if (get_post_type() === 'instance' && !is_archive() && is_user_logged_in()) {
+            if ($_GET['delete'] === 'confirm') {
+                $postID = get_the_ID();
+                wp_delete_post($postID);
+                $this->update_ini_on_post_delete(get_the_ID(), get_post());
+            }
+        }
+    }
+
+    /**
+     * This Function runs as a Cronjob which should run the script required to creat a new moodle instance
+     * and set the Post_Status of the instance to publish afterwards
+     * @return void
+     */
+    public function cron_create_new_instance()
+    {
+
 
     }
 
+    public function cron_update_instance_courses()
+    {
+        global $wpdb;
+
+        $course_id = intval(3);
+
+        /*
+         * TODO: When the courses are querried unset the course with id =1 because this is the reference to the
+         * TODO: instance and actual course
+         */
+
+        $query = "select CONCAT('/pluginfile.php',filepath, contextid,'/',component,'/',filearea,'/', filename) path
+from moodle_gpen_dialogue_net.test_files 
+where component='course' and mimetype is NOT null and filearea='overviewfiles' and contextid in (
+	select id from moodle_gpen_dialogue_net.test_context where instanceid= $course_id
+)";
+
+        $course_img_path = $wpdb->get_var($query);
+    }
 
     /**
      * @param $assoc_arr
