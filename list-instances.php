@@ -47,7 +47,7 @@ class ListInstances {
 
         //activate only for Testing purposes
 		//add_action( 'init', [ $this, 'cron_update_instance_courses' ] );
-		//add_action( 'init', [ $this, 'cron_create_new_instance' ] );
+		add_action( 'init', [ $this, 'cron_create_new_instance' ] );
 
 
 
@@ -62,21 +62,23 @@ class ListInstances {
 		},10,2);
 	}
 
+    /**
+     * sync  multi-moodle-instances/instances.ini with existing instances posts
+     * @return void
+     */
 	public function sync_instances_with_ini() {
 
 		$assoc_arr                      = parse_ini_file( dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
 		$assoc_arr['subdomains']['sub'] = array();
 
-		$instances = get_posts( [
+        $instances = get_posts( [
 			'numberposts' => - 1,
-			'post_status' => 'publish',
+			'post_status' => ['publish','draft'],  //draft: instance while creating
 			'post_type'   => 'instance'
 		] );
 		foreach ( $instances as $instance ) {
 			if ( is_a( $instance, 'WP_Post' ) ) {
 				$assoc_arr['subdomains']['sub'][ $instance->post_name ] = $instance->post_title;
-				//$this->setup_new_moodle_instance( $instance );
-				//$this->create_user( $instance, 'manager' );
 			}
 		}
 
@@ -86,16 +88,16 @@ class ListInstances {
 	}
 
 	/**
-	 * @param $assoc_arr
-	 * @param $path
-	 * @param $has_sections
+	 * @param array $assoc_arr
+	 * @param string $path
+	 * @param boolean $has_sections
 	 *
 	 * @return false|int
 	 *
 	 * written by Harikrishnan
 	 * https://stackoverflow.com/questions/1268378/create-ini-file-write-values-in-php
 	 */
-	function write_ini_file( $assoc_arr, $path, $has_sections = false ) {
+	function write_ini_file( array $assoc_arr, string $path, bool $has_sections = false ) {
 		$content = "";
 		if ( $has_sections ) {
 			foreach ( $assoc_arr as $key => $elem ) {
@@ -179,7 +181,10 @@ class ListInstances {
 
 		}
 	}
-
+    /**
+     * action hook wp
+     * @return void
+     */
 	public function delete_post_on_attribute_pass() {
         if ( $_GET['delete'] === 'confirm' ) {
 
@@ -187,10 +192,9 @@ class ListInstances {
 
 				$post = get_post();
                 if(is_a($post,'WP_Post')){
-                    if($this->update_ini_on_post_delete( $post )){
+                    if( $this->update_ini_on_post_delete( $post ) === true){
                         wp_delete_post( $post->ID);
-                        wp_redirect(home_url().'/instance');
-                        die();
+                        wp_redirect(home_url().'/instance'); die();
                     }else{
                         echo('Die Instanz konnte nicht gelöscht werden!');die();
                     }
@@ -202,7 +206,6 @@ class ListInstances {
 	}
 
 	/**
-	 * @param $postid
 	 * @param WP_Post $post
 	 *
 	 * @return bool;
@@ -222,7 +225,7 @@ class ListInstances {
         if("true" == trim( $output)){
             unset( $ini_content['subdomains']['sub'][ $post->post_name ] );
             $this->write_ini_file( $ini_content, dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
-            $this->log("write_ini_file",$prefix);
+            $this->log("write_ini_file",'_'.$prefix);
             return true;
         }
 
@@ -232,7 +235,7 @@ class ListInstances {
 
 	/**
 	 * convert $subdomain to database secure string
-     *
+     * @example: the subdomain "my-school2 needs database prefix "my_school"
      * @param $subdomain
 	 *
 	 * @return string
@@ -240,14 +243,11 @@ class ListInstances {
     protected function get_moodle_db_prefix($subdomain){
 	    $prefix = str_replace('-','_',$subdomain);
 	    $prefix = preg_replace('/[^a-z0-9_]/','', $prefix);
-	    $prefix = trim($prefix,"\t\n\r\0\x0B\_");
-
-        return $prefix;
-
+	    return trim($prefix,"\t\n\r\0\x0B\-");
     }
 
-    protected function log($output = "", $prefix = ''){
-        $logfile = dirname(get_home_path()).'/manage'.$prefix.'.log';
+    protected function log($output = "", $postfix = ''){
+        $logfile = dirname(get_home_path()).'/manage'.$postfix.'.log';
         $date = date('Y/m/d H:i');
         $ip = $_SERVER['REMOTE_ADDR'];
         $user_id = get_current_user_id();
@@ -256,7 +256,7 @@ class ListInstances {
     }
 
 	/**
-	 * This Function runs as a Cronjob which should run the script required to creat a new moodle instance
+	 * This function runs as a cronjob, which should run the script required to create a new moodle instance
 	 * and set the Post_Status of the instance to publish afterwards
 	 * @return void
 	 */
@@ -272,7 +272,7 @@ class ListInstances {
 		foreach ( $instances as $instance ) {
             if ( is_a( $instance, 'WP_Post' ) ) {
 
-                if($this->setup_new_moodle_instance( $instance ) && $this->create_user( $instance , true )){
+                if($this->setup_new_moodle_instance( $instance ) && $this->set_manager( $instance )){
                     $instance->post_status = 'publish';
                     wp_update_post($instance);
                 }
@@ -313,36 +313,57 @@ class ListInstances {
         return false;
 
 	}
-
-    /**
+     /**
      * @param WP_Post $instance
      * @param mixed $user  stdClass | string
      *
      * @return boolean
      */
-    protected function create_user( WP_Post $instance , $manager = false) {
+    protected function set_manager( WP_Post $instance ) {
+
+
+
+        $person = new stdClass();
+
+        $person->username  = get_post_meta( $instance->ID, 'username', true );
+        $person->password  = get_post_meta( $instance->ID, 'password', true );
+        $person->email     = get_post_meta( $instance->ID, 'e-mail', true );
+        $person->firstname = get_post_meta( $instance->ID, 'firstname', true );
+        $person->lastname  = get_post_meta( $instance->ID, 'lastname', true );
+        $person->is_manager = true;
+
+        return $this->create_user($person,$instance);
+
+
+    }
+
+    /**
+    * @param object $person
+    * @param WP_Post $instance
+    *
+    * @return bool
+    */
+    protected function create_user(object $person, WP_Post $instance ) {
 
         $prefix = $this->get_moodle_db_prefix($instance->post_name);
 
 
+        $command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ &&' .
+            ' export MULTI_HOST_SUBDOMAIN="' . $instance->post_name .'" &&  php7.4 create_new_user.php'.
+            ' --username="' . $person->username . '" --email="' . $person->email . '"  --password="' . $person->password . '" '.
+            '--firstname="' . $person->firstname . '" --lastname="' . $person->lastname .  '"';
 
-        $username  = get_post_meta( $instance->ID, 'username', true );
-        $password  = get_post_meta( $instance->ID, 'password', true );
-        $email     = get_post_meta( $instance->ID, 'e-mail', true );
-        $firstname = get_post_meta( $instance->ID, 'firstname', true );
-        $lastname  = get_post_meta( $instance->ID, 'lastname', true );
-
-        $command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && export MULTI_HOST_SUBDOMAIN="' . $instance->post_name . '" &&  php7.4 create-user.php --username="' . $username . '" --email="' . $email . '" --firstname="' . $firstname . '" --lastname="' . $lastname . '"  --password="' . $password . '"';
-
+        if($person->is_manager){
+            $command .= ' --manager=yes';
+        }
 
         ob_start();
         system( $command );
         $output = ob_get_clean();
         $this->log($command ."\n". $output, "_$prefix");
 
-        if($manager){
-            return $this->set_manager($instance, $username);
-        }else{
+        if('success' == trim($output)){
+            $this->mail_to_manager($person,$instance);
             return true;
         }
         return false;
@@ -350,24 +371,25 @@ class ListInstances {
     }
     /**
      * @param WP_Post $instance
-     * @param strinng $username
+     * @param stdClass $person
      *
      * @return boolean
      */
-    protected function set_manager( WP_Post $instance , $username) {
+    protected function mail_to_manager(object $person, WP_Post $instance) {
 
-        $prefix = $this->get_moodle_db_prefix($instance->post_name);
+        $subject ="[{$instance->post_name}".MOODLE_MAIN_HOST."] GPEN Moodle";
 
-        $command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && export MULTI_HOST_SUBDOMAIN="' . $instance->post_name . '" &&  php7.4 create-user.php --username="' . $username . '"';
-        ob_start();
-        system( $command );
-        $output = ob_get_clean();
-        $this->log($command ."\n". $output, "_$prefix");
-        if($output == "success"){
-            return true;
+        $body = "Du hast jetzt Manager Rechte in deiner Moodle Instanz.<br>" .
+                "Login:  https://{$instance->post_name} ".MOODLE_MAIN_HOST."<br>".
+                "Benutzername: $person->username <br>Passwort: $person->password <br>" .
+                "Nach dem ersten Gebrauch unbedingt ändern!";
+
+
+        if($person->email){
+            $this->mail($person->email,$subject, $body);
         }
-        return false;
 
+        return true;
     }
 
     /**
@@ -521,6 +543,23 @@ class ListInstances {
 		set_post_thumbnail( $post_id, $attach_id );
 	}
 
+    /**
+    * @param string $mail_to
+    * @param string $subject
+    * @param string $message
+    *
+    * @return void
+    */
+    public function mail(string $mail_to,string $subject,string $message){
+
+        $headers = array(
+                'Content-Type: text/html; charset=UTF-8',
+                'From: GPEN Dialogue <technik@rpi-virtuell.de>',
+                'Bcc: joachim.happel@gmail.com'
+        );
+
+        wp_mail( $mail_to, $subject, $message, $headers );
+    }
 	/**
      *
 	 * @return void
