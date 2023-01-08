@@ -23,6 +23,11 @@
  * Domain Path:       /languages
  */
 
+/**
+ * List and Mange Moodle  from Wordpress on the same Server
+ */
+
+
 class ListInstances {
 	public function __construct() {
 
@@ -32,19 +37,23 @@ class ListInstances {
 	        define('MOODLE_MAIN_HOST',$host);
         }
 
-		add_action( 'init', [ $this, 'delete_post_on_attribute_pass' ] );
+		add_action( 'wp', [ $this, 'delete_post_on_attribute_pass' ] );
 		add_action( 'wp_insert_post', [ $this, 'update_ini_on_post_insert' ], 10, 3 );
 		add_action( 'blocksy:single:content:bottom', [ $this, 'display_instance_content' ] );
-		add_action( 'blocksy:single:bottom', [ $this, 'add_delete_button' ] , 20);
+		add_action( 'blocksy:single:top', [ $this, 'add_delete_button' ] , 20);
 		add_action( 'rpi_multi_moodle_update_all_courses', [ $this, 'cron_update_instance_courses' ] );
 		add_action( 'rpi_multi_moodle_create_new_instance', [ $this, 'cron_create_new_instance' ] );
+        add_action( 'admin_init', [ $this, 'sync_instances_with_ini' ] );
 
+        //activate only for Testing purposes
 		//add_action( 'init', [ $this, 'cron_update_instance_courses' ] );
 		//add_action( 'init', [ $this, 'cron_create_new_instance' ] );
 
-		##add_action( 'delete_post', [ $this, 'update_ini_on_post_delete' ], 10, 2 );
 
 
+        /*
+         * Rewrite permalinks of courses -> Direct link to Moodle courses
+         */
 		add_filter('post_type_link', function ($post_link, WP_Post $post) {
             if('moodle_course' == $post->post_type){
                 return  get_post_meta($post->ID, 'course-url', true);
@@ -66,13 +75,65 @@ class ListInstances {
 		foreach ( $instances as $instance ) {
 			if ( is_a( $instance, 'WP_Post' ) ) {
 				$assoc_arr['subdomains']['sub'][ $instance->post_name ] = $instance->post_title;
-				$this->setup_new_moodle_instance( $instance );
+				//$this->setup_new_moodle_instance( $instance );
+				//$this->create_user( $instance, 'manager' );
 			}
 		}
 
 		$this->write_ini_file( $assoc_arr, dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
 
 
+	}
+
+	/**
+	 * @param $assoc_arr
+	 * @param $path
+	 * @param $has_sections
+	 *
+	 * @return false|int
+	 *
+	 * written by Harikrishnan
+	 * https://stackoverflow.com/questions/1268378/create-ini-file-write-values-in-php
+	 */
+	function write_ini_file( $assoc_arr, $path, $has_sections = false ) {
+		$content = "";
+		if ( $has_sections ) {
+			foreach ( $assoc_arr as $key => $elem ) {
+				$content .= "[" . $key . "]\n";
+				foreach ( $elem as $key2 => $elem2 ) {
+					if ( is_array( $elem2 ) ) {
+						foreach ( $elem2 as $key3 => $elem3 ) {
+							$content .= $key2 . "[$key3] = \"" . $elem3 . "\"\n";
+						}
+					} else if ( $elem2 == "" ) {
+						$content .= $key2 . " = \n";
+					} else {
+						$content .= $key2 . " = \"" . $elem2 . "\"\n";
+					}
+				}
+			}
+		} else {
+			foreach ( $assoc_arr as $key => $elem ) {
+				if ( is_array( $elem ) ) {
+					for ( $i = 0; $i < count( $elem ); $i ++ ) {
+						$content .= $key . "[] = \"" . $elem[ $i ] . "\"\n";
+					}
+				} else if ( $elem == "" ) {
+					$content .= $key . " = \n";
+				} else {
+					$content .= $key . " = \"" . $elem . "\"\n";
+				}
+			}
+		}
+
+		if ( ! $handle = fopen( $path, 'w' ) ) {
+			return false;
+		}
+
+		$success = fwrite( $handle, $content );
+		fclose( $handle );
+
+		return $success;
 	}
 
 	/**
@@ -88,64 +149,111 @@ class ListInstances {
 		}
 	}
 
-	/**
-	 * @param $postid
-	 * @param WP_Post $post
-	 *
-	 * @return void
-	 */
-	public function update_ini_on_post_delete( $postid, WP_Post $post ) {
-		if ( $post->post_type === 'instance' && current_user_can('administrator')) {
-
-			$prefix = $this->get_moodle_db_prefix($post->post_name);
-
-			$ini_content = parse_ini_file( dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
-			$command     = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && bash delete.sh "' . $prefix . '" "y" ';
-            echo shell_exec( $command );
-			unset( $ini_content['subdomains']['sub'][ $post->post_name ] );
-			$this->write_ini_file( $ini_content, dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
-
-		}
-	}
-
-
-	public function add_delete_button() {
+    /**
+    * @return void
+    */
+    public function add_delete_button() {
 		if ( get_post_type() === 'instance' && ! is_archive() && is_user_logged_in() && current_user_can( 'administrator' ) ) {
 			?>
+            <div style="position: relative">
+                <div id="instance-delete">
 
-            <a href="?delete=request" class="button">Instanz löschen</a>
+
 
 			<?php
 			if ( $_GET['delete'] === 'request' ) {
 				?>
-                <div>
-                    Wirklich Löschen?
-                    <a href="?delete=confirm" class="button">Ja</a>
-                    <a href="<?php echo get_post_permalink() ?>" class="button">Nein</a>
-                </div>
+                    <div class="delete-confirm">
+                        <div>Soll diese Moodle-Instanz wirklich gelöscht werden?</div>
+                        <a href="?delete=confirm" class="button yes">Ja</a>
+                        <a href="<?php echo get_post_permalink() ?>" class="button no">Nein</a>
+                    </div>
 				<?php
+			}else{
+                ?>
+                <a href="?delete=request" class="button">Instanz löschen</a>
+                <?php
 			}
-			if ( $_GET['delete'] === 'confirm' ) {
-				$postID = get_the_ID();
-				wp_delete_post( $postID );
-				//$this->update_ini_on_post_delete(get_the_ID(), get_post());
-			}
+            echo '</div></div>';
+
+
 		}
 	}
 
 	public function delete_post_on_attribute_pass() {
-		if ( get_post_type() === 'instance' && ! is_archive() && is_user_logged_in()  && current_user_can('manage_options')) {
-			if ( $_GET['delete'] === 'confirm' ) {
-				$postID = get_the_ID();
-				wp_delete_post( $postID );
-				$this->update_ini_on_post_delete( get_the_ID(), get_post() );
+        if ( $_GET['delete'] === 'confirm' ) {
 
+            if (  is_singular('instance') && is_user_logged_in()  && current_user_can('manage_options')) {
 
+				$post = get_post();
+                if(is_a($post,'WP_Post')){
+                    if($this->update_ini_on_post_delete( $post )){
+                        wp_delete_post( $post->ID);
+                        wp_redirect(home_url().'/instance');
+                        die();
+                    }else{
+                        echo('Die Instanz konnte nicht gelöscht werden!');die();
+                    }
 
-                die();
+                }
+
 			}
 		}
 	}
+
+	/**
+	 * @param $postid
+	 * @param WP_Post $post
+	 *
+	 * @return bool;
+	 */
+	protected function update_ini_on_post_delete( WP_Post $post ) {
+
+        $prefix = $this->get_moodle_db_prefix($post->post_name);
+
+        $ini_content = parse_ini_file( dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
+        $command     = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && bash delete.sh "' . $prefix . '" "y" ';
+
+        ob_start();
+        system( $command );
+        $output = ob_get_clean();
+        $this->log($command ."\n". $output,'_'.$prefix);
+
+        if("true" == trim( $output)){
+            unset( $ini_content['subdomains']['sub'][ $post->post_name ] );
+            $this->write_ini_file( $ini_content, dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
+            $this->log("write_ini_file",$prefix);
+            return true;
+        }
+
+
+        return false;
+	}
+
+	/**
+	 * convert $subdomain to database secure string
+     *
+     * @param $subdomain
+	 *
+	 * @return string
+	 */
+    protected function get_moodle_db_prefix($subdomain){
+	    $prefix = str_replace('-','_',$subdomain);
+	    $prefix = preg_replace('/[^a-z0-9_]/','', $prefix);
+	    $prefix = trim($prefix,"\t\n\r\0\x0B\_");
+
+        return $prefix;
+
+    }
+
+    protected function log($output = "", $prefix = ''){
+        $logfile = dirname(get_home_path()).'/manage'.$prefix.'.log';
+        $date = date('Y/m/d H:i');
+        $ip = $_SERVER['REMOTE_ADDR'];
+        $user_id = get_current_user_id();
+        $content = "[$date] $ip | $user_id | $output \n----\n\n";
+        file_put_contents($logfile, $content, FILE_APPEND);
+    }
 
 	/**
 	 * This Function runs as a Cronjob which should run the script required to creat a new moodle instance
@@ -153,8 +261,8 @@ class ListInstances {
 	 * @return void
 	 */
 	public function cron_create_new_instance() {
-		global $wpdb;
-		$instances = get_posts( [
+
+        $instances = get_posts( [
 			'numberposts' => - 1,
 			'post_status' => 'draft',
 			'post_type'   => 'instance'
@@ -163,12 +271,110 @@ class ListInstances {
 
 		foreach ( $instances as $instance ) {
             if ( is_a( $instance, 'WP_Post' ) ) {
-                $this->setup_new_moodle_instance( $instance );
+
+                if($this->setup_new_moodle_instance( $instance ) && $this->create_user( $instance , true )){
+                    $instance->post_status = 'publish';
+                    wp_update_post($instance);
+                }
+
+
 			}
 		}
+	}
+
+	/**
+	 * @param WP_Post $instance
+	 *
+	 * @return boolean
+	 */
+	protected function setup_new_moodle_instance( WP_Post $instance ) {
+
+		$prefix = $this->get_moodle_db_prefix($instance->post_name);
+
+		if ( ! file_exists( dirname( get_home_path() ) . '/moodle-data/' . $prefix . '/' ) ) {
+
+
+			$ini_content  = parse_ini_file( dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
+			$ini_content['subdomains']['sub'][ $instance->post_name ] = $instance->post_title;
+			$this->write_ini_file( $ini_content, dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
+
+
+			$command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && bash setup.sh "' . $instance->post_name . '" "' . $instance->post_title . '"';
+
+            ob_start();
+            system( $command );
+            $output = ob_get_clean();
+
+            $this->log($command ."\n". $output, "_$prefix");
+
+            return true;
+
+		}
+        return false;
 
 	}
 
+    /**
+     * @param WP_Post $instance
+     * @param mixed $user  stdClass | string
+     *
+     * @return boolean
+     */
+    protected function create_user( WP_Post $instance , $manager = false) {
+
+        $prefix = $this->get_moodle_db_prefix($instance->post_name);
+
+
+
+        $username  = get_post_meta( $instance->ID, 'username', true );
+        $password  = get_post_meta( $instance->ID, 'password', true );
+        $email     = get_post_meta( $instance->ID, 'e-mail', true );
+        $firstname = get_post_meta( $instance->ID, 'firstname', true );
+        $lastname  = get_post_meta( $instance->ID, 'lastname', true );
+
+        $command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && export MULTI_HOST_SUBDOMAIN="' . $instance->post_name . '" &&  php7.4 create-user.php --username="' . $username . '" --email="' . $email . '" --firstname="' . $firstname . '" --lastname="' . $lastname . '"  --password="' . $password . '"';
+
+
+        ob_start();
+        system( $command );
+        $output = ob_get_clean();
+        $this->log($command ."\n". $output, "_$prefix");
+
+        if($manager){
+            return $this->set_manager($instance, $username);
+        }else{
+            return true;
+        }
+        return false;
+
+    }
+    /**
+     * @param WP_Post $instance
+     * @param strinng $username
+     *
+     * @return boolean
+     */
+    protected function set_manager( WP_Post $instance , $username) {
+
+        $prefix = $this->get_moodle_db_prefix($instance->post_name);
+
+        $command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && export MULTI_HOST_SUBDOMAIN="' . $instance->post_name . '" &&  php7.4 create-user.php --username="' . $username . '"';
+        ob_start();
+        system( $command );
+        $output = ob_get_clean();
+        $this->log($command ."\n". $output, "_$prefix");
+        if($output == "success"){
+            return true;
+        }
+        return false;
+
+    }
+
+    /**
+     * Fetch information of moodel courses voia databas request
+     * Save course infos in CPT moodle_course
+     *
+     */
 	public function cron_update_instance_courses() {
 		global $wpdb;
 		$moodledb = new wpdb(DB_MOODLE_USER,DB_MOODLE_PASSWORD,DB_MOODLE,DB_HOST);
@@ -205,7 +411,7 @@ class ListInstances {
 						$query = "select CONCAT('/pluginfile.php',filepath, contextid,'/',component,'/',filearea,'/', filename) path
                               from test_files 
                               where component='course' and mimetype is NOT null and filearea='overviewfiles' and contextid in (
-	                            select id from test_context where instanceid= {$course_id}
+	                            select id from test_context where instanceid = {$course_id}
 	                          )";
 
                         $course_img_path = $moodledb->get_var( $query );
@@ -225,21 +431,6 @@ class ListInstances {
 
 
 	}
-
-	/**
-	 * convert $subdomain to database secure string
-     * @param $subdomain
-	 *
-	 * @return string
-	 */
-    protected function get_moodle_db_prefix($subdomain){
-	    $prefix = str_replace('-','_',$subdomain);
-	    $prefix = preg_replace('/[^a-z0-9_]/','', $prefix);
-	    $prefix = trim($prefix,"\t\n\r\0\x0B\_");
-
-        return $prefix;
-
-    }
 
 	/**
 	 * @param stdClass $course
@@ -299,141 +490,6 @@ class ListInstances {
 	}
 
 	/**
-     *
-	 * @return void
-	 */
-    public function display_instance_content(){
-
-        if('instance' !== get_post_type()){
-            return;
-        }
-
-        $post = get_post(get_the_ID());
-        $manager =  get_field('firstname',$post->ID) . ' ' ;
-        $manager .=  get_field('lastname',$post->ID);
-
-        $url = 'https://'.$post->post_name.MOODLE_MAIN_HOST;
-
-	    $args = array(
-             'post_type'=>'moodle_course',
-             'tax_query'=>array(
-	             'taxonomy' => 'mdl-instance',
-	             'terms' => $post->post_name,
-	             'field' => 'slug',
-             )
-        );
-	    $custom_query = new WP_Query($args);?>
-        <hr>
-        <div class="table-grid" style="">
-            <div class="row-label">Adresse</div><div><a href="<?php echo $url;?>"><?php echo $url;?></a></div>
-            <div class="row-label">Ansprechperson</div><div><?php echo $manager;?></div>
-        </div>
-        <hr>
-        <h2>Öffentliche Kurse</h2>
-        <div class="table-grid" style="display: grid;grid-template-columns: 1fr 1fr 1fr;"><?php
-	    if ($custom_query->have_posts()) : while($custom_query->have_posts()) : $custom_query->the_post();
-            blocksy_render_archive_card();
-	    endwhile; else : ?>
-            <p>Keine öffentlichen Kurse</p>
-	    <?php endif; wp_reset_postdata() ?>
-        </div>
-
-
-
-        <hr>
-	    <?php
-
-    }
-
-	/**
-	 * @param WP_Post $instance
-	 *
-	 * @return void
-	 */
-	protected function setup_new_moodle_instance( WP_Post $instance ) {
-
-		$prefix = $this->get_moodle_db_prefix($instance->post_name);
-
-		//if ( ! file_exists( dirname( get_home_path() ) . '/moodle-data/' . $prefix . '/' ) ) {
-
-
-			$ini_content  = parse_ini_file( dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
-			$ini_content['subdomains']['sub'][ $instance->post_name ] = $instance->post_title;
-			$this->write_ini_file( $ini_content, dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
-
-
-			$command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && bash setup.sh "' . $instance->post_name . '" "' . $instance->post_title . '"';
-
-            shell_exec( $command );
-
-			$username  = get_post_meta( $instance->ID, 'username', true );
-			$password  = get_post_meta( $instance->ID, 'password', true );
-			$e_mail    = get_post_meta( $instance->ID, 'e-mail', true );
-			$firstname = get_post_meta( $instance->ID, 'firstname', true );
-			$lastname  = get_post_meta( $instance->ID, 'lastname', true );
-
-			$user_command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && export MULTI_HOST_SUBDOMAIN=' . $instance->post_name . ' &&  php7.4 create-user.php --username="' . $username . '" --email="' . $e_mail . '" --firstname="' . $firstname . '" --lastname="' . $lastname . '"  --password="' . $password . '"';
-			echo shell_exec( $user_command );
-
-            $instance->post_status = 'publish';
-
-            wp_update_post($instance);
-		//}
-        die();
-	}
-
-	/**
-	 * @param $assoc_arr
-	 * @param $path
-	 * @param $has_sections
-	 *
-	 * @return false|int
-	 *
-	 * written by Harikrishnan
-	 * https://stackoverflow.com/questions/1268378/create-ini-file-write-values-in-php
-	 */
-	function write_ini_file( $assoc_arr, $path, $has_sections = false ) {
-		$content = "";
-		if ( $has_sections ) {
-			foreach ( $assoc_arr as $key => $elem ) {
-				$content .= "[" . $key . "]\n";
-				foreach ( $elem as $key2 => $elem2 ) {
-					if ( is_array( $elem2 ) ) {
-						foreach ( $elem2 as $key3 => $elem3 ) {
-							$content .= $key2 . "[$key3] = \"" . $elem3 . "\"\n";
-						}
-					} else if ( $elem2 == "" ) {
-						$content .= $key2 . " = \n";
-					} else {
-						$content .= $key2 . " = \"" . $elem2 . "\"\n";
-					}
-				}
-			}
-		} else {
-			foreach ( $assoc_arr as $key => $elem ) {
-				if ( is_array( $elem ) ) {
-					for ( $i = 0; $i < count( $elem ); $i ++ ) {
-						$content .= $key . "[] = \"" . $elem[ $i ] . "\"\n";
-					}
-				} else if ( $elem == "" ) {
-					$content .= $key . " = \n";
-				} else {
-					$content .= $key . " = \"" . $elem . "\"\n";
-				}
-			}
-		}
-
-		if ( ! $handle = fopen( $path, 'w' ) ) {
-			return false;
-		}
-
-		$success = fwrite( $handle, $content );
-		fclose( $handle );
-
-		return $success;
-	}
-
-	/**
 	 * @param $image_url
 	 * @param $post_id
 	 *
@@ -461,9 +517,60 @@ class ListInstances {
 		$attach_id   = wp_insert_attachment( $attachment, $file, $post_id );
 		require_once( ABSPATH . 'wp-admin/includes/image.php' );
 		$attach_data = wp_generate_attachment_metadata( $attach_id, $file );
-		$res1        = wp_update_attachment_metadata( $attach_id, $attach_data );
-		$res2        = set_post_thumbnail( $post_id, $attach_id );
+		wp_update_attachment_metadata( $attach_id, $attach_data );
+		set_post_thumbnail( $post_id, $attach_id );
 	}
+
+	/**
+     *
+	 * @return void
+	 */
+    public function display_instance_content(){
+
+        if('instance' !== get_post_type()){
+            return;
+        }
+
+        $post = get_post(get_the_ID());
+        $manager = "N.N.";
+        if(function_exists('get_field')){
+            $manager =  get_field('firstname',$post->ID) . ' ' ;
+            $manager .=  get_field('lastname',$post->ID);
+
+        }
+
+        $url = 'https://'.$post->post_name.MOODLE_MAIN_HOST;
+
+	    $args = array(
+             'post_type'=>'moodle_course',
+             'tax_query'=>array(
+	             'taxonomy' => 'mdl-instance',
+	             'terms' => $post->post_name,
+	             'field' => 'slug',
+             )
+        );
+	    $custom_query = new WP_Query($args);?>
+        <hr>
+        <div class="table-grid" style="">
+            <div class="row-label">Adresse</div><div><a href="<?php echo $url;?>"><?php echo $url;?></a></div>
+            <div class="row-label">Ansprechperson</div><div><?php echo $manager;?></div>
+        </div>
+        <hr>
+        <h2>Öffentliche Kurse</h2>
+        <div class="table-grid" style="display: grid;grid-template-columns: 1fr 1fr 1fr;"><?php
+	    if ($custom_query->have_posts()) : while($custom_query->have_posts()) : $custom_query->the_post();
+            if(function_exists('blocksy_render_archive_card')){
+                //desplay Course Content with the render method of blocksy theme
+                blocksy_render_archive_card();
+            }
+	    endwhile; else : ?>
+            <p>Keine öffentlichen Kurse</p>
+	    <?php endif; wp_reset_postdata() ?>
+        </div>
+        <hr>
+	    <?php
+
+    }
 }
 
 new ListInstances();
