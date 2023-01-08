@@ -354,7 +354,7 @@ class ListInstances {
             '--firstname="' . $person->firstname . '" --lastname="' . $person->lastname .  '"';
 
         if($person->is_manager){
-            $command .= ' --manager=yes';
+            $command .= ' --is_manager=yes';
         }
 
         ob_start();
