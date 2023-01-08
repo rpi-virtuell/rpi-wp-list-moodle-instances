@@ -62,8 +62,7 @@ class ListInstances {
 		] );
 		foreach ( $instances as $instance ) {
 			if ( is_a( $instance, 'WP_Post' ) ) {
-				$subdomain = str_replace('-','_',$instance->post_name);
-				$assoc_arr['subdomains']['sub'][ $subdomain ] = $instance->post_title;
+				$assoc_arr['subdomains']['sub'][ $instance->post_name ] = $instance->post_title;
 				$this->setup_new_moodle_instance( $instance );
 			}
 		}
@@ -94,15 +93,14 @@ class ListInstances {
 	 */
 	public function update_ini_on_post_delete( $postid, WP_Post $post ) {
 		if ( $post->post_type === 'instance' && current_user_can('administrator')) {
-			$subdomain = str_replace('-','_',$post->post_name);
+
+			$prefix = $this->get_moodle_db_prefix($post->post_name);
 
 			$ini_content = parse_ini_file( dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
-			$command     = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && bash delete.sh "' . $subdomain . '" "y" ';
-            var_dump($command); die();
-			echo shell_exec( $command );
-			unset( $ini_content['subdomains']['sub'][ $subdomain ] );
+			$command     = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && bash delete.sh "' . $prefix . '" "y" ';
+            echo shell_exec( $command );
+			unset( $ini_content['subdomains']['sub'][ $post->post_name ] );
 			$this->write_ini_file( $ini_content, dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
-			//die();
 
 		}
 	}
@@ -181,10 +179,10 @@ class ListInstances {
 
         foreach ( $instances as $instance ) {
 			if ( is_a( $instance, 'WP_Post' ) ) {
-				$subdomain = preg_replace( '/^[a-z][0-9]_/', '', $instance->post_name );
 
+                $prefix = $this->get_moodle_db_prefix($instance->post_name);
 
-                $sql = "select id, fullname, summary, startdate, enddate, category from {$subdomain}_course where visible = 1 ORDER BY startdate DESC;";
+                $sql = "select id, fullname, summary, startdate, enddate, category from {$prefix}_course where visible = 1 ORDER BY startdate DESC;";
 
 				$courses = (array) $moodledb->get_results( $sql, OBJECT );
 
@@ -209,11 +207,11 @@ class ListInstances {
 
                         $course_img_path = $moodledb->get_var( $query );
 
-                        $moodle_home            = 'https://'.$subdomain.MOODLE_MAIN_HOST;
+                        $moodle_home            = 'https://'.$instance->post_name.MOODLE_MAIN_HOST;
 						$course->url            = $moodle_home . '/course/view.php?id=' . $course_id;
 						$course->course_img_url = $moodle_home . $course_img_path;
-						$course->slug           = $subdomain . '_' . $course_id;
-						$course->instance       = $subdomain;
+						$course->slug           = $prefix . '_' . $course_id;
+						$course->instance       = $instance->post_name;
 
                         $this->update_course( $course );
 					}
@@ -224,6 +222,21 @@ class ListInstances {
 
 
 	}
+
+	/**
+	 * convert $subdomain to database secure string
+     * @param $subdomain
+	 *
+	 * @return string
+	 */
+    protected function get_moodle_db_prefix($subdomain){
+	    $prefix = str_replace('-','_',$subdomain);
+	    $prefix = preg_replace('/[^a-z0-9_]/','', $prefix);
+	    $prefix = trim($prefix,"\t\n\r\0\x0B\_");
+
+        return $prefix;
+
+    }
 
 	/**
 	 * @param stdClass $course
@@ -298,7 +311,7 @@ class ListInstances {
 
         $url = 'https://'.$post->post_name.MOODLE_MAIN_HOST;
 
-        $args = array(
+	    $args = array(
              'post_type'=>'moodle_course',
              'tax_query'=>array(
 	             'taxonomy' => 'mdl-instance',
@@ -336,18 +349,19 @@ class ListInstances {
 	 */
 	protected function setup_new_moodle_instance( WP_Post $instance ) {
 
-		$subdomain = str_replace('-','_',$instance->post_name);
+		$prefix = $this->get_moodle_db_prefix($instance->post_name);
 
-		if ( ! file_exists( dirname( get_home_path() ) . '/moodle-data/' . $subdomain . '/' ) ) {
+		//if ( ! file_exists( dirname( get_home_path() ) . '/moodle-data/' . $prefix . '/' ) ) {
 
 
 			$ini_content  = parse_ini_file( dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
-			$ini_content['subdomains']['sub'][ $subdomain ] = $instance->post_title;
+			$ini_content['subdomains']['sub'][ $instance->post_name ] = $instance->post_title;
 			$this->write_ini_file( $ini_content, dirname( get_home_path() ) . '/multi-moodle-instances/instances.ini', true );
 
 
-			$command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && bash setup.sh "' . $subdomain . '" "' . $instance->post_title . '"';
-			shell_exec( $command );
+			$command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && bash setup.sh "' . $instance->post_name . '" "' . $instance->post_title . '"';
+
+            shell_exec( $command );
 
 			$username  = get_post_meta( $instance->ID, 'username', true );
 			$password  = get_post_meta( $instance->ID, 'password', true );
@@ -355,13 +369,14 @@ class ListInstances {
 			$firstname = get_post_meta( $instance->ID, 'firstname', true );
 			$lastname  = get_post_meta( $instance->ID, 'lastname', true );
 
-			$user_command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && export MULTI_HOST_SUBDOMAIN=' . $subdomain . ' &&  php7.4 create-user.php --username="' . $username . '" --email="' . $e_mail . '" --firstname="' . $firstname . '" --lastname="' . $lastname . '"  --password="' . $password . '"';
+			$user_command = 'cd ' . dirname( get_home_path() ) . '/multi-moodle-instances/ && export MULTI_HOST_SUBDOMAIN=' . $instance->post_name . ' &&  php7.4 create-user.php --username="' . $username . '" --email="' . $e_mail . '" --firstname="' . $firstname . '" --lastname="' . $lastname . '"  --password="' . $password . '"';
 			echo shell_exec( $user_command );
 
             $instance->post_status = 'publish';
 
             wp_update_post($instance);
-		}
+		//}
+        die();
 	}
 
 	/**
