@@ -34,13 +34,16 @@ class ListInstances {
 
 		add_action( 'init', [ $this, 'delete_post_on_attribute_pass' ] );
 		add_action( 'wp_insert_post', [ $this, 'update_ini_on_post_insert' ], 10, 3 );
-		##add_action( 'delete_post', [ $this, 'update_ini_on_post_delete' ], 10, 2 );
 		add_action( 'blocksy:single:content:bottom', [ $this, 'display_instance_content' ] );
 		add_action( 'blocksy:single:bottom', [ $this, 'add_delete_button' ] , 20);
 		add_action( 'rpi_multi_moodle_update_all_courses', [ $this, 'cron_update_instance_courses' ] );
-		//add_action( 'init', [ $this, 'cron_update_instance_courses' ] );
-		add_action( 'init', [ $this, 'cron_create_new_instance' ] );
 		add_action( 'rpi_multi_moodle_create_new_instance', [ $this, 'cron_create_new_instance' ] );
+
+		//add_action( 'init', [ $this, 'cron_update_instance_courses' ] );
+		//add_action( 'init', [ $this, 'cron_create_new_instance' ] );
+
+		##add_action( 'delete_post', [ $this, 'update_ini_on_post_delete' ], 10, 2 );
+
 
 		add_filter('post_type_link', function ($post_link, WP_Post $post) {
             if('moodle_course' == $post->post_type){
