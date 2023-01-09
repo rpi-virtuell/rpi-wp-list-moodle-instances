@@ -45,6 +45,7 @@ class ListInstances {
 		add_action( 'rpi_multi_moodle_create_new_instance', [ $this, 'cron_create_new_instance' ] );
         add_filter('acf/validate_value/name=subdomain', [$this, 'validate_subdomain'], 10, 4);
         add_action( 'admin_init', [ $this, 'sync_instances_with_ini' ] );
+        add_shortcode('render_instance_form', [$this, 'render_instance_form']);
 
         //activate only for Testing purposes
 		//add_action( 'init', [ $this, 'cron_update_instance_courses' ] );
@@ -95,6 +96,18 @@ class ListInstances {
 
 
 	}
+
+    public function render_instance_form(){
+
+      if (current_user_can('administrator'))
+          {
+              ob_start();
+
+              acfe_form('instanz');
+
+              return ob_get_clean();
+          }
+    }
 
 	/**
 	 * @param array $assoc_arr
