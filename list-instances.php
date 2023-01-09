@@ -43,6 +43,7 @@ class ListInstances {
 		add_action( 'blocksy:single:top', [ $this, 'add_delete_button' ] , 20);
 		add_action( 'rpi_multi_moodle_update_all_courses', [ $this, 'cron_update_instance_courses' ] );
 		add_action( 'rpi_multi_moodle_create_new_instance', [ $this, 'cron_create_new_instance' ] );
+        add_filter('acf/validate_value/name=subdomain', [$this, 'validate_subdomain'], 10, 4);
         add_action( 'admin_init', [ $this, 'sync_instances_with_ini' ] );
 
         //activate only for Testing purposes
@@ -61,6 +62,14 @@ class ListInstances {
             return $post_link;
 		},10,2);
 	}
+
+    public function validate_subdomain($valid, $value, $field, $input)
+    {
+        if(!preg_match("/^[a-z][a-z0-9-]*[a-z0-9]$/",$value)){
+    $valid = "Ungültige Subdomain";
+}
+        return  $valid;
+    }
 
     /**
      * sync  multi-moodle-instances/instances.ini with existing instances posts
