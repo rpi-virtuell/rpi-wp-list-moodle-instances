@@ -47,7 +47,7 @@ class ListInstances {
 
         //activate only for Testing purposes
 		//add_action( 'init', [ $this, 'cron_update_instance_courses' ] );
-		add_action( 'init', [ $this, 'cron_create_new_instance' ] );
+		//add_action( 'init', [ $this, 'cron_create_new_instance' ] );
 
 
 
@@ -506,7 +506,7 @@ class ListInstances {
 	            $term_id = wp_insert_term( $course->instance, 'mdl-instance' );
             }
 
-            wp_set_object_terms($post_id,[$term_id],'mdl-instance');
+            wp_set_object_terms($post_id,[$term_id],'s');
 
 		}
 	}
