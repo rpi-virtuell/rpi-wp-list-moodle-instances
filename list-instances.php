@@ -589,12 +589,15 @@ class ListInstances {
 
         $url = 'https://'.$post->post_name.MOODLE_MAIN_HOST;
 
+
 	    $args = array(
              'post_type'=>'moodle_course',
-             'tax_query'=>array(
-	             'taxonomy' => 'mdl-instance',
-	             'terms' => $post->post_name,
-	             'field' => 'slug',
+             'tax_query'=>array([
+                     'taxonomy' => 'mdl-instance',
+                     'terms' => $post->post_name,
+                     'field' => 'slug',
+]
+
              )
         );
 	    $custom_query = new WP_Query($args);?>
