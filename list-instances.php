@@ -66,8 +66,9 @@ class ListInstances {
 
     public function validate_subdomain($valid, $value, $field, $input)
     {
-        if(!preg_match("/^[a-z][a-z0-9-]*[a-z0-9]$/",$value)){
-    $valid = "Ungültige Subdomain";
+        if(!preg_match("/^[a-z][a-z0-9-]*[a-z0-9]$/",$value) || $value != sanitize_title($value)){
+
+            $valid = "Ungültige Subdomain";
 }
         return  $valid;
     }
@@ -263,9 +264,7 @@ class ListInstances {
 	 * @return string
 	 */
     protected function get_moodle_db_prefix($subdomain){
-	    $prefix = str_replace('-','_',$subdomain);
-	    $prefix = preg_replace('/[^a-z0-9_]/','', $prefix);
-	    return trim($prefix,"\t\n\r\0\x0B\-");
+        return  str_replace('-','_',strtolower(sanitize_title($subdomain)));
     }
 
     protected function log($output = "", $postfix = ''){
