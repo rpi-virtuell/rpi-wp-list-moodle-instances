@@ -1,0 +1,43 @@
+.site-title {
+    margin-top: -40px;
+    margin-left: -40px;
+}
+
+.single-instance .table-grid img{
+    max-width:100%!important;
+    width:100%;
+    margin:20px;
+}
+.single-instance .table-grid{
+    display: grid;
+    grid-template-columns: 150px auto;
+    grid-column-gap: 50px;
+}
+#instance-delete{
+    position: absolute;
+    right:0;
+    max-width:150px;
+}
+#instance-delete .delete-confirm{
+    padding:5px;
+    background-color:yellow;
+    text-align:center;
+    border-radius:5px;
+    border: 1px solid red;
+}
+.delete-confirm .yes{
+    background-color:gray;
+    margin-top:4px
+}
+@media only screen and (min-width: 500px) {
+    .site-title {
+        margin-top: -30px;
+        margin-left: -40px;
+    }
+}
+@media only screen and (min-width: 1280px) {
+    .site-title {
+        margin-top: -88px;
+        margin-left: -40px;
+    }
+}
