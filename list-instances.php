@@ -47,7 +47,6 @@ class ListInstances
         //add_action( 'init', [ $this, 'cron_update_instance_courses' ] );
         //add_action( 'init', [ $this, 'cron_create_new_instance' ] );
 
-
         /*
          * Rewrite permalinks of courses -> Direct link to Moodle courses
          */
@@ -58,16 +57,11 @@ class ListInstances
             return $post_link;
         }, 10, 2);
 
-    public function validate_subdomain($valid, $value, $field, $input)
-    {
-        if(!preg_match("/^[a-z][a-z0-9-]*[a-z0-9]$/",$value) || $value != sanitize_title($value)){
 
-            $valid = "Ungültige Subdomain";
-}
-        return  $valid;
-    }
         //Stylesheet
         wp_enqueue_style('rpi-wall-style', plugin_dir_url(__FILE__) . 'css/list-instances.css');
+    }
+
     /**
      * sync  multi-moodle-instances/instances.ini with existing instances posts
      * @return void
@@ -92,6 +86,7 @@ class ListInstances
         ListInstances::write_ini_file($assoc_arr, dirname(get_home_path()) . '/multi-moodle-instances/instances.ini', true);
 
     }
+
 
     /**
      * @param array $assoc_arr
@@ -183,11 +178,12 @@ class ListInstances
      * convert $subdomain to database secure string
      * @example: the subdomain "my-school2 needs database prefix "my_school"
      * @param $subdomain
-	 *
-	 * @return string
-	 */
-    static function get_moodle_db_prefix($subdomain){
-        return  str_replace('-','_',strtolower(sanitize_title($subdomain)));
+     *
+     * @return string
+     */
+    static function get_moodle_db_prefix($subdomain)
+    {
+        return str_replace('-', '_', strtolower(sanitize_title($subdomain)));
     }
 
     static function log($output = "", $postfix = '')
@@ -334,9 +330,11 @@ class ListInstances
         set_post_thumbnail($post_id, $attach_id);
     }
 
-    public function validate_subdomain($valid, $value, $field, $input)
+    public
+    function validate_subdomain($valid, $value, $field, $input)
     {
-        if (!preg_match("/^[a-z][a-z0-9-]*[a-z0-9]$/", $value)) {
+        if (!preg_match("/^[a-z][a-z0-9-]*[a-z0-9]$/", $value) || $value != sanitize_title($value)) {
+
             $valid = "Ungültige Subdomain";
         }
         return $valid;
@@ -349,7 +347,8 @@ class ListInstances
      *
      * @return void
      */
-    public function update_ini_on_post_insert($post_id, WP_Post $post, $update)
+    public
+    function update_ini_on_post_insert($post_id, WP_Post $post, $update)
     {
         if ($post->post_type === 'instance' && !$update) {
             wp_redirect(home_url() . '/instance');
@@ -360,7 +359,8 @@ class ListInstances
      * action hook wp
      * @return void
      */
-    public function delete_post_on_attribute_pass()
+    public
+    function delete_post_on_attribute_pass()
     {
         if ($_GET['delete'] === 'confirm') {
 
@@ -388,7 +388,8 @@ class ListInstances
      *
      * @return bool;
      */
-    protected function update_ini_on_post_delete(WP_Post $post)
+    protected
+    function update_ini_on_post_delete(WP_Post $post)
     {
 
         $prefix = ListInstances::get_moodle_db_prefix($post->post_name);
@@ -408,7 +409,7 @@ class ListInstances
             return true;
         }
 
-return false;
+        return false;
     }
 
 }
